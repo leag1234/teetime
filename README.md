@@ -10,3 +10,5 @@ playIntegrityProjectNumber=123456789012
 ```
 
 Without this value, the Play Integrity section is skipped at runtime.
+
+For server-side verification, see `backend/php/README.md` for a minimal PHP example that validates integrity tokens returned by the app.
