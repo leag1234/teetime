@@ -17,3 +17,7 @@ gradle-home/
 .DS_Store
 
 # Misc
+
+# Repo metadata
+AGENTS.md
+context.md
