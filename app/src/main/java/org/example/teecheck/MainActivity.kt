@@ -9,6 +9,7 @@ import android.util.Log
 import android.view.View
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
 import com.google.firebase.FirebaseApp
 import java.security.KeyFactory
@@ -32,7 +33,6 @@ import org.example.teecheck.integrity.PlayIntegrityChecker
 import org.example.teecheck.integrity.PlayIntegrityResult
 import org.example.teecheck.report.BootStateSummary
 import org.example.teecheck.report.DeviceInfo
-import org.example.teecheck.report.DeviceReport
 import org.example.teecheck.report.KeyReport
 import org.example.teecheck.report.KeySecurity
 import org.example.teecheck.report.PlayIntegritySummary
@@ -42,7 +42,8 @@ private const val LOG_TAG = "TEE_CHECK"
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
-    private val sectionOutputs = EnumMap<Section, String>(Section::class.java)
+    private val rawOutputs = EnumMap<Section, String>(Section::class.java)
+    private val summaryOutputs = EnumMap<Section, List<String>>(Section::class.java)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -51,6 +52,13 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         binding.outputText.text = getString(R.string.initial_message)
+        binding.summaryText.text = getString(R.string.summary_placeholder)
+        binding.detailsToggle.isChecked = true
+        binding.outputScroll.isVisible = true
+
+        binding.detailsToggle.setOnCheckedChangeListener { _, checked ->
+            binding.outputScroll.isVisible = checked
+        }
 
         binding.runDeviceButton.setOnClickListener {
             lifecycleScope.launch { executeSection(Section.DEVICE) { renderDeviceSection() } }
@@ -83,7 +91,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private suspend fun executeSection(section: Section, producer: suspend () -> String) {
+    private suspend fun executeSection(section: Section, producer: suspend () -> SectionRender) {
         setSectionRunning(section)
         try {
             val content = producer()
@@ -91,25 +99,46 @@ class MainActivity : AppCompatActivity() {
         } catch (t: Throwable) {
             val reason = t.localizedMessage ?: t.javaClass.simpleName
             Log.w(LOG_TAG, "Section ${section.name} failed", t)
-            updateSection(section, getString(R.string.section_error, reason))
+            val errorRender = SectionRender(
+                raw = getString(R.string.section_error, reason),
+                summary = listOf(getString(R.string.section_error, reason))
+            )
+            updateSection(section, errorRender)
         }
     }
 
     private fun setSectionRunning(section: Section) {
-        updateSection(section, getString(R.string.section_running))
+        val runningRender = SectionRender(
+            raw = getString(R.string.section_running),
+            summary = listOf(getString(R.string.section_running))
+        )
+        updateSection(section, runningRender)
     }
 
-    private fun updateSection(section: Section, content: String) {
-        sectionOutputs[section] = content
+    private fun updateSection(section: Section, render: SectionRender) {
+        val trimmedRaw = render.raw.trimEnd()
+        if (trimmedRaw.isEmpty()) {
+            rawOutputs.remove(section)
+        } else {
+            rawOutputs[section] = trimmedRaw
+        }
+
+        if (render.summary.isEmpty()) {
+            summaryOutputs.remove(section)
+        } else {
+            summaryOutputs[section] = render.summary
+        }
+
+        renderSummary()
         renderOutput()
     }
 
     private fun renderOutput() {
         val builder = StringBuilder()
         Section.values().forEach { section ->
-            sectionOutputs[section]?.let { output ->
+            rawOutputs[section]?.let { output ->
                 builder.append(sectionTitle(section)).appendLine()
-                builder.append(output.trimEnd()).appendLine().appendLine()
+                builder.append(output).appendLine().appendLine()
             }
         }
         val fullText = builder.toString().trimEnd()
@@ -118,7 +147,28 @@ class MainActivity : AppCompatActivity() {
         } else {
             fullText
         }
-        binding.outputScroll.post { binding.outputScroll.fullScroll(View.FOCUS_DOWN) }
+        if (binding.outputScroll.isVisible) {
+            binding.outputScroll.post { binding.outputScroll.fullScroll(View.FOCUS_DOWN) }
+        }
+    }
+
+    private fun renderSummary() {
+        val builder = StringBuilder()
+        Section.values().forEach { section ->
+            summaryOutputs[section]?.takeIf { it.isNotEmpty() }?.let { lines ->
+                builder.append(sectionTitle(section)).appendLine()
+                lines.forEach { line ->
+                    builder.append("• ").append(line).appendLine()
+                }
+                builder.appendLine()
+            }
+        }
+        val text = builder.toString().trimEnd()
+        binding.summaryText.text = if (text.isEmpty()) {
+            getString(R.string.summary_placeholder)
+        } else {
+            text
+        }
     }
 
     private fun sectionTitle(section: Section): String = when (section) {
@@ -150,7 +200,7 @@ class MainActivity : AppCompatActivity() {
         KeyDiagnostics(keyReports, warnings)
     }
 
-    private fun renderDeviceSection(): String {
+    private fun renderDeviceSection(): SectionRender {
         val info = DeviceInfo(
             manufacturer = Build.MANUFACTURER,
             model = Build.MODEL,
@@ -173,10 +223,10 @@ class MainActivity : AppCompatActivity() {
             )
         )
 
-        return composeSection(raw, summary)
+        return SectionRender(raw, summary)
     }
 
-    private fun renderKeysSection(result: KeyDiagnostics): String {
+    private fun renderKeysSection(result: KeyDiagnostics): SectionRender {
         val rawBuilder = StringBuilder()
         if (result.keys.isNotEmpty()) {
             rawBuilder.appendLine(getString(R.string.report_header))
@@ -269,14 +319,14 @@ class MainActivity : AppCompatActivity() {
             summaryLines += getString(R.string.keys_summary_warnings, result.warnings.size)
         }
 
-        return composeSection(raw, summaryLines)
+        return SectionRender(raw, summaryLines)
     }
 
     private suspend fun runBootDiagnostics(): BootReportResult = withContext(Dispatchers.IO) {
         runBootAttestation()
     }
 
-    private fun renderBootSection(result: BootReportResult): String {
+    private fun renderBootSection(result: BootReportResult): SectionRender {
         val sb = StringBuilder()
         val bootState = result.summary
         if (bootState != null) {
@@ -285,11 +335,21 @@ class MainActivity : AppCompatActivity() {
             bootState.osPatchLevel?.let { sb.appendLine(getString(R.string.attestation_os_patch, it)) }
             bootState.vendorPatchLevel?.let { sb.appendLine(getString(R.string.attestation_vendor_patch, it)) }
             bootState.bootPatchLevel?.let { sb.appendLine(getString(R.string.attestation_boot_patch, it)) }
-            bootState.deviceLocked?.let { sb.appendLine(getString(R.string.attestation_device_locked, booleanString(it))) }
-            bootState.verifiedBootStateDescription?.let { sb.appendLine(getString(R.string.attestation_verified_boot, it)) }
-            bootState.verifiedBootHash?.let { sb.appendLine(getString(R.string.attestation_verified_hash, it)) }
-            bootState.bootKeyFingerprint?.let { sb.appendLine(getString(R.string.attestation_verified_key, it)) }
-            bootState.attestationChallengeSha256?.let { sb.appendLine(getString(R.string.attestation_challenge_fingerprint, it)) }
+            bootState.deviceLocked?.let {
+                sb.appendLine(getString(R.string.attestation_device_locked, booleanString(it)))
+            }
+            bootState.verifiedBootStateDescription?.let {
+                sb.appendLine(getString(R.string.attestation_verified_boot, it))
+            }
+            bootState.verifiedBootHash?.let {
+                sb.appendLine(getString(R.string.attestation_verified_hash, it))
+            }
+            bootState.bootKeyFingerprint?.let {
+                sb.appendLine(getString(R.string.attestation_verified_key, it))
+            }
+            bootState.attestationChallengeSha256?.let {
+                sb.appendLine(getString(R.string.attestation_challenge_fingerprint, it))
+            }
         }
 
         if (bootState == null) {
@@ -320,14 +380,14 @@ class MainActivity : AppCompatActivity() {
             bootState.bootPatchLevel?.let { summaryLines += getString(R.string.boot_summary_boot_patch, it) }
         }
 
-        return composeSection(raw, summaryLines)
+        return SectionRender(raw, summaryLines)
     }
 
     private suspend fun runPlayIntegrityDiagnostics(): PlayIntegrityReportResult = withContext(Dispatchers.IO) {
         runPlayIntegrityCheck()
     }
 
-    private fun renderIntegritySection(result: PlayIntegrityReportResult): String {
+    private fun renderIntegritySection(result: PlayIntegrityReportResult): SectionRender {
         val integrity = result.summary
         val sb = StringBuilder()
         if (integrity != null) {
@@ -383,13 +443,12 @@ class MainActivity : AppCompatActivity() {
                 summaryLines += getString(R.string.integrity_summary_licensing_verdict, it)
             }
         } else {
-            val reason = result.messages.firstOrNull()
-            if (reason != null) {
-                summaryLines += getString(R.string.integrity_summary_failure, reason)
+            result.messages.firstOrNull()?.let {
+                summaryLines += getString(R.string.integrity_summary_failure, it)
             }
         }
 
-        return composeSection(raw, summaryLines)
+        return SectionRender(raw, summaryLines)
     }
 
     private suspend fun runFirebaseDiagnostics(): FirebaseResult = withContext(Dispatchers.IO) {
@@ -406,7 +465,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun renderFirebaseSection(result: FirebaseResult): String {
+    private fun renderFirebaseSection(result: FirebaseResult): SectionRender {
         val raw = when (result) {
             is FirebaseResult.Success -> getString(R.string.firebase_success, result.appName)
             is FirebaseResult.Failure -> getString(R.string.firebase_error, result.reason)
@@ -417,7 +476,7 @@ class MainActivity : AppCompatActivity() {
             is FirebaseResult.Failure -> listOf(getString(R.string.firebase_summary_failure))
         }
 
-        return composeSection(raw, summary)
+        return SectionRender(raw, summary)
     }
 
     private fun assessRsaKey(): KeyReport {
@@ -736,23 +795,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun ByteArray.sha256(): ByteArray = MessageDigest.getInstance("SHA-256").digest(this)
 
-    private fun composeSection(raw: String, summaryLines: List<String>): String {
-        val trimmedRaw = raw.trimEnd()
-        if (summaryLines.isEmpty()) {
-            return trimmedRaw
-        }
-
-        return buildString {
-            if (trimmedRaw.isNotEmpty()) {
-                append(trimmedRaw)
-                appendLine()
-                appendLine()
-            }
-            appendLine(getString(R.string.section_summary_header))
-            summaryLines.forEach { appendLine("- $it") }
-        }.trimEnd()
-    }
-
     private data class BootReportResult(
         val summary: BootStateSummary?,
         val messages: List<String>
@@ -782,4 +824,6 @@ class MainActivity : AppCompatActivity() {
         INTEGRITY,
         FIREBASE
     }
+
+    private data class SectionRender(val raw: String, val summary: List<String>)
 }

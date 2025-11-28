@@ -106,4 +106,6 @@
     <string name="integrity_summary_failure">Integrity request failed: %1$s.</string>
     <string name="firebase_summary_success">Firebase can initialise on this build.</string>
     <string name="firebase_summary_failure">Firebase initialisation failed; check Google services availability.</string>
+    <string name="summary_placeholder">No diagnostics run yet. Results will appear here.</string>
+    <string name="details_toggle_label">Show technical details</string>
 </resources>
