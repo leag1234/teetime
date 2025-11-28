@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">TEE Checker</string>
-    <string name="initial_message">Generating report…</string>
+    <string name="initial_message">Select a test category to begin.</string>
     <string name="report_title">Android TEE / StrongBox check</string>
     <string name="device_info">Device: %1$s %2$s</string>
     <string name="android_info">Android: %1$s (SDK %2$d)</string>
@@ -66,4 +66,21 @@
     <string name="play_integrity_bad_project_number">Play Integrity skipped: invalid project number "%1$s".</string>
     <string name="play_integrity_error">Play Integrity failed: %1$s</string>
     <string name="play_integrity_no_data">Play Integrity data unavailable.</string>
+    <string name="instructions">Tap a section below to run that diagnostic. "Run all" executes every check sequentially.</string>
+    <string name="button_run_keys">Run TEE / KeyStore checks</string>
+    <string name="button_run_boot">Run boot status attestation</string>
+    <string name="button_run_device">Show device info</string>
+    <string name="button_run_integrity">Run Play Integrity</string>
+    <string name="button_run_firebase">Check Firebase init</string>
+    <string name="button_run_all">Run all diagnostics</string>
+    <string name="firebase_header">Firebase initialization</string>
+    <string name="firebase_success">Firebase initialized with app name "%1$s".</string>
+    <string name="firebase_error">Firebase init failed: %1$s</string>
+    <string name="section_running">Running…</string>
+    <string name="section_error">Error: %1$s</string>
+    <string name="section_title_device">Device information</string>
+    <string name="section_title_keys">TEE / KeyStore</string>
+    <string name="section_title_boot">Boot status</string>
+    <string name="section_title_integrity">Play Integrity</string>
+    <string name="section_title_firebase">Firebase</string>
 </resources>

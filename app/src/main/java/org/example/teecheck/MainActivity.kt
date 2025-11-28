@@ -6,15 +6,18 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyInfo
 import android.security.keystore.KeyProperties
 import android.util.Log
+import android.view.View
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import com.google.firebase.FirebaseApp
 import java.security.KeyFactory
 import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
+import java.util.EnumMap
 import java.util.Locale
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKeyFactory
@@ -39,6 +42,7 @@ private const val LOG_TAG = "TEE_CHECK"
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
+    private val sectionOutputs = EnumMap<Section, String>(Section::class.java)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -48,23 +52,93 @@ class MainActivity : AppCompatActivity() {
 
         binding.outputText.text = getString(R.string.initial_message)
 
-        lifecycleScope.launch {
-            val output = withContext(Dispatchers.IO) { buildReport() }
-            binding.outputText.text = output.displayText
-            Log.i(LOG_TAG, "\n${output.displayText}")
+        binding.runDeviceButton.setOnClickListener {
+            lifecycleScope.launch { executeSection(Section.DEVICE) { renderDeviceSection() } }
+        }
+
+        binding.runKeysButton.setOnClickListener {
+            lifecycleScope.launch { executeSection(Section.KEYS) { renderKeysSection(collectKeyDiagnostics()) } }
+        }
+
+        binding.runBootButton.setOnClickListener {
+            lifecycleScope.launch { executeSection(Section.BOOT) { renderBootSection(runBootDiagnostics()) } }
+        }
+
+        binding.runIntegrityButton.setOnClickListener {
+            lifecycleScope.launch { executeSection(Section.INTEGRITY) { renderIntegritySection(runPlayIntegrityDiagnostics()) } }
+        }
+
+        binding.runFirebaseButton.setOnClickListener {
+            lifecycleScope.launch { executeSection(Section.FIREBASE) { renderFirebaseSection(runFirebaseDiagnostics()) } }
+        }
+
+        binding.runAllButton.setOnClickListener {
+            lifecycleScope.launch {
+                executeSection(Section.DEVICE) { renderDeviceSection() }
+                executeSection(Section.KEYS) { renderKeysSection(collectKeyDiagnostics()) }
+                executeSection(Section.BOOT) { renderBootSection(runBootDiagnostics()) }
+                executeSection(Section.INTEGRITY) { renderIntegritySection(runPlayIntegrityDiagnostics()) }
+                executeSection(Section.FIREBASE) { renderFirebaseSection(runFirebaseDiagnostics()) }
+            }
         }
     }
 
-    private suspend fun buildReport(): ReportOutput {
-        val warnings = mutableListOf<String>()
+    private suspend fun executeSection(section: Section, producer: suspend () -> String) {
+        setSectionRunning(section)
+        try {
+            val content = producer()
+            updateSection(section, content)
+        } catch (t: Throwable) {
+            val reason = t.localizedMessage ?: t.javaClass.simpleName
+            Log.w(LOG_TAG, "Section ${section.name} failed", t)
+            updateSection(section, getString(R.string.section_error, reason))
+        }
+    }
+
+    private fun setSectionRunning(section: Section) {
+        updateSection(section, getString(R.string.section_running))
+    }
+
+    private fun updateSection(section: Section, content: String) {
+        sectionOutputs[section] = content
+        renderOutput()
+    }
+
+    private fun renderOutput() {
+        val builder = StringBuilder()
+        Section.values().forEach { section ->
+            sectionOutputs[section]?.let { output ->
+                builder.append(sectionTitle(section)).appendLine()
+                builder.append(output.trimEnd()).appendLine().appendLine()
+            }
+        }
+        val fullText = builder.toString().trimEnd()
+        binding.outputText.text = if (fullText.isEmpty()) {
+            getString(R.string.initial_message)
+        } else {
+            fullText
+        }
+        binding.outputScroll.post { binding.outputScroll.fullScroll(View.FOCUS_DOWN) }
+    }
+
+    private fun sectionTitle(section: Section): String = when (section) {
+        Section.DEVICE -> getString(R.string.section_title_device)
+        Section.KEYS -> getString(R.string.section_title_keys)
+        Section.BOOT -> getString(R.string.section_title_boot)
+        Section.INTEGRITY -> getString(R.string.section_title_integrity)
+        Section.FIREBASE -> getString(R.string.section_title_firebase)
+    }
+
+    private suspend fun collectKeyDiagnostics(): KeyDiagnostics = withContext(Dispatchers.IO) {
+        val warnings = mutableListOf<KeyWarning>()
         val keyReports = mutableListOf<KeyReport>()
 
-        fun collectKey(label: String, builder: () -> KeyReport) {
+        fun collectKey(label: String, block: () -> KeyReport) {
             try {
-                keyReports += builder()
+                keyReports += block()
             } catch (t: Throwable) {
                 val reason = t.localizedMessage ?: t.javaClass.simpleName
-                warnings += getString(R.string.key_generation_error, label, reason)
+                warnings += KeyWarning(label, reason)
                 Log.w(LOG_TAG, "Key assessment failed for $label", t)
             }
         }
@@ -73,9 +147,10 @@ class MainActivity : AppCompatActivity() {
         collectKey("EC-P256") { assessEcKey() }
         collectKey("AES-256") { assessAesKey() }
 
-        val bootResult = runBootAttestation()
-        val playIntegrityResult = runPlayIntegrityCheck()
+        KeyDiagnostics(keyReports, warnings)
+    }
 
+    private fun renderDeviceSection(): String {
         val deviceReport = DeviceReport(
             device = DeviceInfo(
                 manufacturer = Build.MANUFACTURER,
@@ -83,27 +158,181 @@ class MainActivity : AppCompatActivity() {
                 androidVersion = Build.VERSION.RELEASE ?: "unknown",
                 sdkInt = Build.VERSION.SDK_INT
             ),
-            bootState = bootResult.summary,
-            keys = keyReports,
-            playIntegrity = playIntegrityResult.summary
+            bootState = null,
+            keys = emptyList(),
+            playIntegrity = null
         )
 
-        val json = deviceReport.toJson()
-        val humanReadable = formatReadableReport(
-            deviceReport,
-            warnings,
-            bootResult.messages,
-            playIntegrityResult.messages
-        )
-        val display = buildString {
-            append(humanReadable)
-            appendLine()
-            appendLine()
-            appendLine(getString(R.string.json_header))
-            append(json)
+        return buildString {
+            appendLine(getString(R.string.device_info, deviceReport.device.manufacturer, deviceReport.device.model))
+            appendLine(getString(R.string.android_info, deviceReport.device.androidVersion, deviceReport.device.sdkInt))
+        }.trimEnd()
+    }
+
+    private fun renderKeysSection(result: KeyDiagnostics): String {
+        val sb = StringBuilder()
+        if (result.keys.isNotEmpty()) {
+            sb.appendLine(getString(R.string.report_header))
+            sb.appendLine(getString(R.string.report_divider))
+            result.keys.forEach { key ->
+                sb.appendLine(formatLine(key.algorithm, key.security.label, key.security.note))
+            }
+
+            sb.appendLine()
+            sb.appendLine(getString(R.string.key_details_header))
+            result.keys.forEach { key ->
+                sb.appendLine(getString(R.string.key_detail_title, key.algorithm, key.security.label))
+                sb.appendLine("  ${getString(R.string.key_detail_security, key.security.label, key.security.note)}")
+                key.keySize?.let { size -> sb.appendLine("  ${getString(R.string.key_detail_size, size)}") }
+                key.origin?.let { origin -> sb.appendLine("  ${getString(R.string.key_detail_origin, origin)}") }
+                if (key.purposes.isNotEmpty()) {
+                    sb.appendLine("  ${getString(R.string.key_detail_purposes, key.purposes.joinToString(", "))}")
+                }
+                if (key.digests.isNotEmpty()) {
+                    sb.appendLine("  ${getString(R.string.key_detail_digests, key.digests.joinToString(", "))}")
+                }
+                if (key.blockModes.isNotEmpty()) {
+                    sb.appendLine("  ${getString(R.string.key_detail_block_modes, key.blockModes.joinToString(", "))}")
+                }
+                if (key.encryptionPaddings.isNotEmpty()) {
+                    sb.appendLine("  ${getString(R.string.key_detail_encryption_paddings, key.encryptionPaddings.joinToString(", "))}")
+                }
+                if (key.signaturePaddings.isNotEmpty()) {
+                    sb.appendLine("  ${getString(R.string.key_detail_signature_paddings, key.signaturePaddings.joinToString(", "))}")
+                }
+                sb.appendLine(
+                    "  ${getString(
+                        R.string.key_detail_user_auth,
+                        booleanString(key.userAuthRequired),
+                        key.userAuthHwEnforced?.let { booleanString(it) }
+                            ?: getString(R.string.attestation_unknown_value)
+                    )}"
+                )
+                key.userAuthTimeoutSeconds?.let { timeout ->
+                    sb.appendLine("  ${getString(R.string.key_detail_timeout, timeout)}")
+                }
+                key.trustedUserPresenceRequired?.let { value ->
+                    sb.appendLine("  ${getString(R.string.key_detail_trusted_presence, booleanString(value))}")
+                }
+                key.userConfirmationRequired?.let { value ->
+                    sb.appendLine("  ${getString(R.string.key_detail_user_confirmation, booleanString(value))}")
+                }
+                key.authValidWhileOnBody?.let { value ->
+                    sb.appendLine("  ${getString(R.string.key_detail_on_body, booleanString(value))}")
+                }
+                key.invalidatedByBiometricEnrollment?.let { value ->
+                    sb.appendLine("  ${getString(R.string.key_detail_biometric_invalidation, booleanString(value))}")
+                }
+                sb.appendLine()
+            }
+        } else {
+            sb.appendLine(getString(R.string.no_keys_collected))
         }
 
-        return ReportOutput(display, json)
+        if (result.warnings.isNotEmpty()) {
+            sb.appendLine(getString(R.string.warnings_header))
+            result.warnings.forEach { warning ->
+                sb.appendLine("- ${getString(R.string.key_generation_error, warning.label, warning.reason)}")
+            }
+        }
+
+        return sb.toString().trimEnd()
+    }
+
+    private suspend fun runBootDiagnostics(): BootReportResult = withContext(Dispatchers.IO) {
+        runBootAttestation()
+    }
+
+    private fun renderBootSection(result: BootReportResult): String {
+        val sb = StringBuilder()
+        val bootState = result.summary
+        if (bootState != null) {
+            sb.appendLine(getString(R.string.attestation_security_level_line, bootState.attestationSecurityLevel, bootState.keymasterSecurityLevel))
+            sb.appendLine(getString(R.string.attestation_versions, bootState.attestationVersion, bootState.keymasterVersion))
+            bootState.osPatchLevel?.let { sb.appendLine(getString(R.string.attestation_os_patch, it)) }
+            bootState.vendorPatchLevel?.let { sb.appendLine(getString(R.string.attestation_vendor_patch, it)) }
+            bootState.bootPatchLevel?.let { sb.appendLine(getString(R.string.attestation_boot_patch, it)) }
+            bootState.deviceLocked?.let { sb.appendLine(getString(R.string.attestation_device_locked, booleanString(it))) }
+            bootState.verifiedBootStateDescription?.let { sb.appendLine(getString(R.string.attestation_verified_boot, it)) }
+            bootState.verifiedBootHash?.let { sb.appendLine(getString(R.string.attestation_verified_hash, it)) }
+            bootState.bootKeyFingerprint?.let { sb.appendLine(getString(R.string.attestation_verified_key, it)) }
+            bootState.attestationChallengeSha256?.let { sb.appendLine(getString(R.string.attestation_challenge_fingerprint, it)) }
+        }
+
+        if (bootState == null) {
+            if (result.messages.isEmpty()) {
+                sb.appendLine(getString(R.string.attestation_no_data))
+            } else {
+                result.messages.forEach { sb.appendLine("- $it") }
+            }
+        }
+
+        return sb.toString().trimEnd()
+    }
+
+    private suspend fun runPlayIntegrityDiagnostics(): PlayIntegrityReportResult = withContext(Dispatchers.IO) {
+        runPlayIntegrityCheck()
+    }
+
+    private fun renderIntegritySection(result: PlayIntegrityReportResult): String {
+        val integrity = result.summary
+        val sb = StringBuilder()
+        if (integrity != null) {
+            sb.appendLine(getString(R.string.play_integrity_highest_level, integrity.highestIntegrityLevel))
+            if (integrity.deviceRecognitionVerdicts.isNotEmpty()) {
+                sb.appendLine(
+                    getString(
+                        R.string.play_integrity_device_verdicts,
+                        integrity.deviceRecognitionVerdicts.joinToString(", ")
+                    )
+                )
+            }
+            integrity.appRecognitionVerdict?.let {
+                sb.appendLine(getString(R.string.play_integrity_app_verdict, it))
+            }
+            val licensingVerdict = integrity.accountLicensingVerdict ?: integrity.appLicensingVerdict
+            licensingVerdict?.let {
+                sb.appendLine(getString(R.string.play_integrity_account_verdict, it))
+            }
+            integrity.requestPackageName?.let {
+                sb.appendLine(getString(R.string.play_integrity_request_package, it))
+            }
+            integrity.requestTimestampMillis?.let {
+                sb.appendLine(getString(R.string.play_integrity_request_timestamp, it))
+            }
+            sb.appendLine(getString(R.string.play_integrity_nonce, integrity.nonceSha256))
+        }
+
+        if (integrity == null) {
+            if (result.messages.isEmpty()) {
+                sb.appendLine(getString(R.string.play_integrity_no_data))
+            } else {
+                result.messages.forEach { sb.appendLine("- $it") }
+            }
+        }
+
+        return sb.toString().trimEnd()
+    }
+
+    private suspend fun runFirebaseDiagnostics(): FirebaseResult = withContext(Dispatchers.IO) {
+        try {
+            val initialized = FirebaseApp.initializeApp(applicationContext)
+                ?: FirebaseApp.getApps(applicationContext).firstOrNull()
+            if (initialized != null) {
+                FirebaseResult.Success(initialized.name)
+            } else {
+                FirebaseResult.Failure("FirebaseApp is null")
+            }
+        } catch (t: Throwable) {
+            FirebaseResult.Failure(t.localizedMessage ?: t.javaClass.simpleName)
+        }
+    }
+
+    private fun renderFirebaseSection(result: FirebaseResult): String {
+        return when (result) {
+            is FirebaseResult.Success -> getString(R.string.firebase_success, result.appName)
+            is FirebaseResult.Failure -> getString(R.string.firebase_error, result.reason)
+        }
     }
 
     private fun assessRsaKey(): KeyReport {
@@ -285,7 +514,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun runBootAttestation(): BootReportResult {
+    private suspend fun runBootAttestation(): BootReportResult {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
             return BootReportResult(summary = null, messages = listOf(getString(R.string.attestation_not_supported)))
         }
@@ -353,167 +582,41 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
-    private fun formatReadableReport(
-        deviceReport: DeviceReport,
-        warnings: List<String>,
-        bootMessages: List<String>,
-        integrityMessages: List<String>
-    ): String {
-        val sb = StringBuilder()
-        sb.appendLine(getString(R.string.report_title))
-        sb.appendLine(getString(R.string.device_info, deviceReport.device.manufacturer, deviceReport.device.model))
-        sb.appendLine(getString(R.string.android_info, deviceReport.device.androidVersion, deviceReport.device.sdkInt))
-        sb.appendLine()
-
-        if (deviceReport.keys.isNotEmpty()) {
-            sb.appendLine(getString(R.string.report_header))
-            sb.appendLine(getString(R.string.report_divider))
-            deviceReport.keys.forEach { key ->
-                sb.appendLine(formatLine(key.algorithm, key.security.label, key.security.note))
-            }
-        } else {
-            sb.appendLine(getString(R.string.no_keys_collected))
+    private suspend fun runPlayIntegrityCheck(): PlayIntegrityReportResult {
+        val rawNumber = BuildConfig.PLAY_INTEGRITY_PROJECT_NUMBER
+        if (rawNumber.isBlank()) {
+            return PlayIntegrityReportResult(
+                summary = null,
+                messages = listOf(getString(R.string.play_integrity_not_configured))
+            )
         }
 
-        if (warnings.isNotEmpty()) {
-            sb.appendLine()
-            sb.appendLine(getString(R.string.warnings_header))
-            warnings.forEach { sb.appendLine("- $it") }
+        val projectNumber = rawNumber.toLongOrNull()
+            ?: return PlayIntegrityReportResult(
+                summary = null,
+                messages = listOf(getString(R.string.play_integrity_bad_project_number, rawNumber))
+            )
+
+        val checker = PlayIntegrityChecker(applicationContext)
+        return when (val result = checker.check(projectNumber)) {
+            is PlayIntegrityResult.Success -> PlayIntegrityReportResult(result.summary, emptyList())
+            is PlayIntegrityResult.Failure -> PlayIntegrityReportResult(
+                summary = null,
+                messages = listOf(getString(R.string.play_integrity_error, result.reason))
+            )
         }
-
-        if (deviceReport.keys.isNotEmpty()) {
-            sb.appendLine()
-            sb.appendLine(getString(R.string.key_details_header))
-            deviceReport.keys.forEach { key ->
-                sb.appendLine(getString(R.string.key_detail_title, key.algorithm, key.security.label))
-                sb.appendLine("  ${getString(R.string.key_detail_security, key.security.label, key.security.note)}")
-                key.keySize?.let { size ->
-                    sb.appendLine("  ${getString(R.string.key_detail_size, size)}")
-                }
-                key.origin?.let { origin ->
-                    sb.appendLine("  ${getString(R.string.key_detail_origin, origin)}")
-                }
-                if (key.purposes.isNotEmpty()) {
-                    sb.appendLine("  ${getString(R.string.key_detail_purposes, key.purposes.joinToString(", "))}")
-                }
-                if (key.digests.isNotEmpty()) {
-                    sb.appendLine("  ${getString(R.string.key_detail_digests, key.digests.joinToString(", "))}")
-                }
-                if (key.blockModes.isNotEmpty()) {
-                    sb.appendLine("  ${getString(R.string.key_detail_block_modes, key.blockModes.joinToString(", "))}")
-                }
-                if (key.encryptionPaddings.isNotEmpty()) {
-                    sb.appendLine("  ${getString(R.string.key_detail_encryption_paddings, key.encryptionPaddings.joinToString(", "))}")
-                }
-                if (key.signaturePaddings.isNotEmpty()) {
-                    sb.appendLine("  ${getString(R.string.key_detail_signature_paddings, key.signaturePaddings.joinToString(", "))}")
-                }
-                sb.appendLine(
-                    "  ${getString(
-                        R.string.key_detail_user_auth,
-                        booleanString(key.userAuthRequired),
-                        key.userAuthHwEnforced?.let { booleanString(it) } ?: getString(R.string.attestation_unknown_value)
-                    )}"
-                )
-                key.userAuthTimeoutSeconds?.let { timeout ->
-                    sb.appendLine("  ${getString(R.string.key_detail_timeout, timeout)}")
-                }
-                key.trustedUserPresenceRequired?.let { value ->
-                    sb.appendLine("  ${getString(R.string.key_detail_trusted_presence, booleanString(value))}")
-                }
-                key.userConfirmationRequired?.let { value ->
-                    sb.appendLine("  ${getString(R.string.key_detail_user_confirmation, booleanString(value))}")
-                }
-                key.authValidWhileOnBody?.let { value ->
-                    sb.appendLine("  ${getString(R.string.key_detail_on_body, booleanString(value))}")
-                }
-                key.invalidatedByBiometricEnrollment?.let { value ->
-                    sb.appendLine("  ${getString(R.string.key_detail_biometric_invalidation, booleanString(value))}")
-                }
-                sb.appendLine()
-            }
-        }
-
-        sb.appendLine(getString(R.string.attestation_header))
-        val bootState = deviceReport.bootState
-        if (bootState != null) {
-            sb.appendLine(getString(R.string.attestation_security_level_line, bootState.attestationSecurityLevel, bootState.keymasterSecurityLevel))
-            sb.appendLine(getString(R.string.attestation_versions, bootState.attestationVersion, bootState.keymasterVersion))
-            bootState.osPatchLevel?.let { sb.appendLine(getString(R.string.attestation_os_patch, it)) }
-            bootState.vendorPatchLevel?.let { sb.appendLine(getString(R.string.attestation_vendor_patch, it)) }
-            bootState.bootPatchLevel?.let { sb.appendLine(getString(R.string.attestation_boot_patch, it)) }
-            bootState.deviceLocked?.let {
-                val label = booleanString(it)
-                sb.appendLine(getString(R.string.attestation_device_locked, label))
-            }
-            bootState.verifiedBootStateDescription?.let {
-                sb.appendLine(getString(R.string.attestation_verified_boot, it))
-            }
-            bootState.verifiedBootHash?.let {
-                sb.appendLine(getString(R.string.attestation_verified_hash, it))
-            }
-            bootState.bootKeyFingerprint?.let {
-                sb.appendLine(getString(R.string.attestation_verified_key, it))
-            }
-            bootState.attestationChallengeSha256?.let {
-                sb.appendLine(getString(R.string.attestation_challenge_fingerprint, it))
-            }
-        } else {
-            if (bootMessages.isEmpty()) {
-                sb.appendLine(getString(R.string.attestation_no_data))
-            } else {
-                bootMessages.forEach { sb.appendLine("- $it") }
-            }
-        }
-
-        sb.appendLine()
-        sb.appendLine(getString(R.string.play_integrity_header))
-        val integrity = deviceReport.playIntegrity
-        if (integrity != null) {
-            sb.appendLine(getString(R.string.play_integrity_highest_level, integrity.highestIntegrityLevel))
-            if (integrity.deviceRecognitionVerdicts.isNotEmpty()) {
-                sb.appendLine(
-                    getString(
-                        R.string.play_integrity_device_verdicts,
-                        integrity.deviceRecognitionVerdicts.joinToString(", ")
-                    )
-                )
-            }
-            integrity.appRecognitionVerdict?.let {
-                sb.appendLine(getString(R.string.play_integrity_app_verdict, it))
-            }
-            val licensingVerdict = integrity.accountLicensingVerdict ?: integrity.appLicensingVerdict
-            licensingVerdict?.let {
-                sb.appendLine(getString(R.string.play_integrity_account_verdict, it))
-            }
-            integrity.requestPackageName?.let {
-                sb.appendLine(getString(R.string.play_integrity_request_package, it))
-            }
-            integrity.requestTimestampMillis?.let {
-                sb.appendLine(getString(R.string.play_integrity_request_timestamp, it))
-            }
-            sb.appendLine(getString(R.string.play_integrity_nonce, integrity.nonceSha256))
-        } else {
-            if (integrityMessages.isEmpty()) {
-                sb.appendLine(getString(R.string.play_integrity_no_data))
-            } else {
-                integrityMessages.forEach { sb.appendLine("- $it") }
-            }
-        }
-
-        return sb.toString().trimEnd()
-    }
-
-    private fun booleanString(value: Boolean): String = if (value) {
-        getString(R.string.attestation_yes)
-    } else {
-        getString(R.string.attestation_no)
     }
 
     private fun formatLine(algo: String, level: String, note: String): String {
         val algoCol = algo.padEnd(12)
         val levelCol = level.padEnd(18)
         return "$algoCol | $levelCol | $note"
+    }
+
+    private fun booleanString(value: Boolean): String = if (value) {
+        getString(R.string.attestation_yes)
+    } else {
+        getString(R.string.attestation_no)
     }
 
     private fun deleteEntry(alias: String) {
@@ -548,8 +651,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun ByteArray.sha256(): ByteArray = MessageDigest.getInstance("SHA-256").digest(this)
 
-    private data class ReportOutput(val displayText: String, val json: String)
-
     private data class BootReportResult(
         val summary: BootStateSummary?,
         val messages: List<String>
@@ -560,28 +661,23 @@ class MainActivity : AppCompatActivity() {
         val messages: List<String>
     )
 
-    private suspend fun runPlayIntegrityCheck(): PlayIntegrityReportResult {
-        val rawNumber = BuildConfig.PLAY_INTEGRITY_PROJECT_NUMBER
-        if (rawNumber.isBlank()) {
-            return PlayIntegrityReportResult(
-                summary = null,
-                messages = listOf(getString(R.string.play_integrity_not_configured))
-            )
-        }
+    private data class KeyDiagnostics(
+        val keys: List<KeyReport>,
+        val warnings: List<KeyWarning>
+    )
 
-        val projectNumber = rawNumber.toLongOrNull()
-            ?: return PlayIntegrityReportResult(
-                summary = null,
-                messages = listOf(getString(R.string.play_integrity_bad_project_number, rawNumber))
-            )
+    private data class KeyWarning(val label: String, val reason: String)
 
-        val checker = PlayIntegrityChecker(applicationContext)
-        return when (val result = checker.check(projectNumber)) {
-            is PlayIntegrityResult.Success -> PlayIntegrityReportResult(result.summary, emptyList())
-            is PlayIntegrityResult.Failure -> PlayIntegrityReportResult(
-                summary = null,
-                messages = listOf(getString(R.string.play_integrity_error, result.reason))
-            )
-        }
+    private sealed class FirebaseResult {
+        data class Success(val appName: String) : FirebaseResult()
+        data class Failure(val reason: String) : FirebaseResult()
+    }
+
+    private enum class Section {
+        DEVICE,
+        KEYS,
+        BOOT,
+        INTEGRITY,
+        FIREBASE
     }
 }
