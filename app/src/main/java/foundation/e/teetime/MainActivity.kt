@@ -1,4 +1,4 @@
-package org.example.teecheck
+package foundation.e.teetime
 
 import android.os.Build
 import android.os.Bundle
@@ -27,17 +27,17 @@ import javax.crypto.SecretKeyFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.example.teecheck.attestation.AttestationParser
-import org.example.teecheck.attestation.BootStateReport
-import org.example.teecheck.attestation.VerifiedBootState
-import org.example.teecheck.databinding.ActivityMainBinding
-import org.example.teecheck.integrity.PlayIntegrityChecker
-import org.example.teecheck.integrity.PlayIntegrityResult
-import org.example.teecheck.report.BootStateSummary
-import org.example.teecheck.report.DeviceInfo
-import org.example.teecheck.report.KeyReport
-import org.example.teecheck.report.KeySecurity
-import org.example.teecheck.report.PlayIntegritySummary
+import foundation.e.teetime.attestation.AttestationParser
+import foundation.e.teetime.attestation.BootStateReport
+import foundation.e.teetime.attestation.VerifiedBootState
+import foundation.e.teetime.databinding.ActivityMainBinding
+import foundation.e.teetime.integrity.PlayIntegrityChecker
+import foundation.e.teetime.integrity.PlayIntegrityResult
+import foundation.e.teetime.report.BootStateSummary
+import foundation.e.teetime.report.DeviceInfo
+import foundation.e.teetime.report.KeyReport
+import foundation.e.teetime.report.KeySecurity
+import foundation.e.teetime.report.PlayIntegritySummary
 
 private const val LOG_TAG = "TEE_CHECK"
 

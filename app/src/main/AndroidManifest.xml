@@ -9,7 +9,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.TEEChecker">
         <activity
-            android:name="org.example.teecheck.MainActivity"
+            android:name="foundation.e.teetime.MainActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

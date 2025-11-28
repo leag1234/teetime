@@ -1,4 +1,4 @@
-package org.example.teecheck.integrity
+package foundation.e.teetime.integrity
 
 import android.content.Context
 import android.util.Base64
@@ -7,7 +7,7 @@ import com.google.android.play.core.integrity.IntegrityManagerFactory
 import com.google.android.play.core.integrity.IntegrityServiceException
 import com.google.android.play.core.integrity.IntegrityTokenRequest
 import kotlinx.coroutines.tasks.await
-import org.example.teecheck.report.PlayIntegritySummary
+import foundation.e.teetime.report.PlayIntegritySummary
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest

@@ -1,4 +1,4 @@
-package org.example.teecheck.attestation
+package foundation.e.teetime.attestation
 
 import java.math.BigInteger
 import java.security.cert.X509Certificate

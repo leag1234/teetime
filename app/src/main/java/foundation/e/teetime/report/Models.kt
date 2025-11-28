@@ -1,4 +1,4 @@
-package org.example.teecheck.report
+package foundation.e.teetime.report
 
 import org.json.JSONArray
 import org.json.JSONObject

@@ -6,11 +6,11 @@ plugins {
 def playIntegrityProjectNumber = project.findProperty("playIntegrityProjectNumber") ?: ""
 
 android {
-    namespace "org.example.teecheck"
+    namespace "foundation.e.teetime"
     compileSdk 34
 
     defaultConfig {
-        applicationId "org.example.teecheck"
+        applicationId "foundation.e.teetime"
         minSdk 21
         targetSdk 34
         versionCode 1
