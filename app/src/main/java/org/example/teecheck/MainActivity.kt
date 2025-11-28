@@ -7,10 +7,12 @@ import android.security.keystore.KeyInfo
 import android.security.keystore.KeyProperties
 import android.util.Log
 import android.view.View
+import android.widget.TextView
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
+import com.google.android.material.button.MaterialButton
 import com.google.firebase.FirebaseApp
 import java.security.KeyFactory
 import java.security.KeyPairGenerator
@@ -42,8 +44,8 @@ private const val LOG_TAG = "TEE_CHECK"
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
-    private val rawOutputs = EnumMap<Section, String>(Section::class.java)
-    private val summaryOutputs = EnumMap<Section, List<String>>(Section::class.java)
+    private val sectionViews = EnumMap<Section, SectionViews>(Section::class.java)
+    private val detailVisibility = EnumMap<Section, Boolean>(Section::class.java)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -51,153 +53,164 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        binding.outputText.text = getString(R.string.initial_message)
-        binding.summaryText.text = getString(R.string.summary_placeholder)
-        binding.detailsToggle.isChecked = true
-        binding.outputScroll.isVisible = true
+        setupSection(
+            section = Section.DEVICE,
+            summary = binding.deviceSummary,
+            details = binding.deviceDetails,
+            runButton = binding.deviceRunButton,
+            toggleButton = binding.deviceToggleButton
+        ) { renderDeviceSection() }
 
-        binding.detailsToggle.setOnCheckedChangeListener { _, checked ->
-            binding.outputScroll.isVisible = checked
-        }
+        setupSection(
+            section = Section.KEYS,
+            summary = binding.keysSummary,
+            details = binding.keysDetails,
+            runButton = binding.keysRunButton,
+            toggleButton = binding.keysToggleButton
+        ) { withContext(Dispatchers.IO) { renderKeysSection(collectKeyDiagnostics()) } }
 
-        binding.runDeviceButton.setOnClickListener {
-            lifecycleScope.launch { executeSection(Section.DEVICE) { renderDeviceSection() } }
-        }
+        setupSection(
+            section = Section.BOOT,
+            summary = binding.bootSummary,
+            details = binding.bootDetails,
+            runButton = binding.bootRunButton,
+            toggleButton = binding.bootToggleButton
+        ) { withContext(Dispatchers.IO) { renderBootSection(runBootDiagnostics()) } }
 
-        binding.runKeysButton.setOnClickListener {
-            lifecycleScope.launch { executeSection(Section.KEYS) { renderKeysSection(collectKeyDiagnostics()) } }
-        }
+        setupSection(
+            section = Section.INTEGRITY,
+            summary = binding.integritySummary,
+            details = binding.integrityDetails,
+            runButton = binding.integrityRunButton,
+            toggleButton = binding.integrityToggleButton
+        ) { withContext(Dispatchers.IO) { renderIntegritySection(runPlayIntegrityDiagnostics()) } }
 
-        binding.runBootButton.setOnClickListener {
-            lifecycleScope.launch { executeSection(Section.BOOT) { renderBootSection(runBootDiagnostics()) } }
-        }
-
-        binding.runIntegrityButton.setOnClickListener {
-            lifecycleScope.launch { executeSection(Section.INTEGRITY) { renderIntegritySection(runPlayIntegrityDiagnostics()) } }
-        }
-
-        binding.runFirebaseButton.setOnClickListener {
-            lifecycleScope.launch { executeSection(Section.FIREBASE) { renderFirebaseSection(runFirebaseDiagnostics()) } }
-        }
+        setupSection(
+            section = Section.FIREBASE,
+            summary = binding.firebaseSummary,
+            details = binding.firebaseDetails,
+            runButton = binding.firebaseRunButton,
+            toggleButton = binding.firebaseToggleButton
+        ) { withContext(Dispatchers.IO) { renderFirebaseSection(runFirebaseDiagnostics()) } }
 
         binding.runAllButton.setOnClickListener {
             lifecycleScope.launch {
                 executeSection(Section.DEVICE) { renderDeviceSection() }
-                executeSection(Section.KEYS) { renderKeysSection(collectKeyDiagnostics()) }
-                executeSection(Section.BOOT) { renderBootSection(runBootDiagnostics()) }
-                executeSection(Section.INTEGRITY) { renderIntegritySection(runPlayIntegrityDiagnostics()) }
-                executeSection(Section.FIREBASE) { renderFirebaseSection(runFirebaseDiagnostics()) }
+                executeSection(Section.KEYS) { withContext(Dispatchers.IO) { renderKeysSection(collectKeyDiagnostics()) } }
+                executeSection(Section.BOOT) { withContext(Dispatchers.IO) { renderBootSection(runBootDiagnostics()) } }
+                executeSection(Section.INTEGRITY) { withContext(Dispatchers.IO) { renderIntegritySection(runPlayIntegrityDiagnostics()) } }
+                executeSection(Section.FIREBASE) { withContext(Dispatchers.IO) { renderFirebaseSection(runFirebaseDiagnostics()) } }
             }
+        }
+    }
+
+    private fun setupSection(
+        section: Section,
+        summary: TextView,
+        details: TextView,
+        runButton: MaterialButton,
+        toggleButton: MaterialButton,
+        producer: suspend () -> SectionRender
+    ) {
+        sectionViews[section] = SectionViews(summary, details, toggleButton)
+        detailVisibility[section] = false
+        toggleButton.setOnClickListener { toggleDetails(section) }
+        runButton.setOnClickListener { lifecycleScope.launch { executeSection(section, producer) } }
+        applySectionRender(section, SectionRender(raw = "", summary = emptyList()))
+    }
+
+    private fun toggleDetails(section: Section) {
+        val views = sectionViews[section] ?: return
+        val current = detailVisibility[section] ?: false
+        val newState = !current
+        detailVisibility[section] = newState
+        val hasDetails = views.details.text.isNotBlank() && views.details.text != getString(R.string.section_details_empty)
+        views.details.isVisible = newState && hasDetails
+        views.toggle.text = if (newState && hasDetails) {
+            getString(R.string.hide_details)
+        } else {
+            getString(R.string.show_details)
         }
     }
 
     private suspend fun executeSection(section: Section, producer: suspend () -> SectionRender) {
         setSectionRunning(section)
         try {
-            val content = producer()
-            updateSection(section, content)
+            val render = producer()
+            applySectionRender(section, render)
         } catch (t: Throwable) {
             val reason = t.localizedMessage ?: t.javaClass.simpleName
             Log.w(LOG_TAG, "Section ${section.name} failed", t)
-            val errorRender = SectionRender(
-                raw = getString(R.string.section_error, reason),
-                summary = listOf(getString(R.string.section_error, reason))
+            applySectionRender(
+                section,
+                SectionRender(
+                    raw = getString(R.string.section_error, reason),
+                    summary = listOf(getString(R.string.section_error, reason))
+                )
             )
-            updateSection(section, errorRender)
         }
     }
 
     private fun setSectionRunning(section: Section) {
-        val runningRender = SectionRender(
-            raw = getString(R.string.section_running),
-            summary = listOf(getString(R.string.section_running))
+        applySectionRender(
+            section,
+            SectionRender(
+                raw = getString(R.string.section_running),
+                summary = listOf(getString(R.string.section_running))
+            )
         )
-        updateSection(section, runningRender)
     }
 
-    private fun updateSection(section: Section, render: SectionRender) {
+    private fun applySectionRender(section: Section, render: SectionRender) {
+        val views = sectionViews[section] ?: return
+        val summaryText = if (render.summary.isEmpty()) {
+            getString(R.string.section_summary_none)
+        } else {
+            render.summary.joinToString(separator = "\n")
+        }
+        views.summary.text = summaryText
+
         val trimmedRaw = render.raw.trimEnd()
         if (trimmedRaw.isEmpty()) {
-            rawOutputs.remove(section)
+            views.details.text = getString(R.string.section_details_empty)
+            views.details.isVisible = false
+            views.toggle.isEnabled = false
+            detailVisibility[section] = false
         } else {
-            rawOutputs[section] = trimmedRaw
+            views.details.text = trimmedRaw
+            views.toggle.isEnabled = true
+            val show = detailVisibility[section] == true
+            views.details.isVisible = show
         }
 
-        if (render.summary.isEmpty()) {
-            summaryOutputs.remove(section)
+        views.toggle.text = if (views.details.isVisible) {
+            getString(R.string.hide_details)
         } else {
-            summaryOutputs[section] = render.summary
-        }
-
-        renderSummary()
-        renderOutput()
-    }
-
-    private fun renderOutput() {
-        val builder = StringBuilder()
-        Section.values().forEach { section ->
-            rawOutputs[section]?.let { output ->
-                builder.append(sectionTitle(section)).appendLine()
-                builder.append(output).appendLine().appendLine()
-            }
-        }
-        val fullText = builder.toString().trimEnd()
-        binding.outputText.text = if (fullText.isEmpty()) {
-            getString(R.string.initial_message)
-        } else {
-            fullText
-        }
-        if (binding.outputScroll.isVisible) {
-            binding.outputScroll.post { binding.outputScroll.fullScroll(View.FOCUS_DOWN) }
+            getString(R.string.show_details)
         }
     }
 
-    private fun renderSummary() {
-        val builder = StringBuilder()
-        Section.values().forEach { section ->
-            summaryOutputs[section]?.takeIf { it.isNotEmpty() }?.let { lines ->
-                builder.append(sectionTitle(section)).appendLine()
-                lines.forEach { line ->
-                    builder.append("• ").append(line).appendLine()
+    private suspend fun collectKeyDiagnostics(): KeyDiagnostics {
+        return withContext(Dispatchers.IO) {
+            val warnings = mutableListOf<KeyWarning>()
+            val keyReports = mutableListOf<KeyReport>()
+
+            fun collectKey(label: String, block: () -> KeyReport) {
+                try {
+                    keyReports += block()
+                } catch (t: Throwable) {
+                    val reason = t.localizedMessage ?: t.javaClass.simpleName
+                    warnings += KeyWarning(label, reason)
+                    Log.w(LOG_TAG, "Key assessment failed for $label", t)
                 }
-                builder.appendLine()
             }
+
+            collectKey("RSA-2048") { assessRsaKey() }
+            collectKey("EC-P256") { assessEcKey() }
+            collectKey("AES-256") { assessAesKey() }
+
+            KeyDiagnostics(keyReports, warnings)
         }
-        val text = builder.toString().trimEnd()
-        binding.summaryText.text = if (text.isEmpty()) {
-            getString(R.string.summary_placeholder)
-        } else {
-            text
-        }
-    }
-
-    private fun sectionTitle(section: Section): String = when (section) {
-        Section.DEVICE -> getString(R.string.section_title_device)
-        Section.KEYS -> getString(R.string.section_title_keys)
-        Section.BOOT -> getString(R.string.section_title_boot)
-        Section.INTEGRITY -> getString(R.string.section_title_integrity)
-        Section.FIREBASE -> getString(R.string.section_title_firebase)
-    }
-
-    private suspend fun collectKeyDiagnostics(): KeyDiagnostics = withContext(Dispatchers.IO) {
-        val warnings = mutableListOf<KeyWarning>()
-        val keyReports = mutableListOf<KeyReport>()
-
-        fun collectKey(label: String, block: () -> KeyReport) {
-            try {
-                keyReports += block()
-            } catch (t: Throwable) {
-                val reason = t.localizedMessage ?: t.javaClass.simpleName
-                warnings += KeyWarning(label, reason)
-                Log.w(LOG_TAG, "Key assessment failed for $label", t)
-            }
-        }
-
-        collectKey("RSA-2048") { assessRsaKey() }
-        collectKey("EC-P256") { assessEcKey() }
-        collectKey("AES-256") { assessAesKey() }
-
-        KeyDiagnostics(keyReports, warnings)
     }
 
     private fun renderDeviceSection(): SectionRender {
@@ -824,6 +837,12 @@ class MainActivity : AppCompatActivity() {
         INTEGRITY,
         FIREBASE
     }
+
+    private data class SectionViews(
+        val summary: TextView,
+        val details: TextView,
+        val toggle: MaterialButton
+    )
 
     private data class SectionRender(val raw: String, val summary: List<String>)
 }
