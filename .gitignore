@@ -1,0 +1,19 @@
+# Android/Gradle
+.gradle/
+build/
+app/build/
+**/build/
+local.properties
+gradle-home/
+
+# IDE
+.idea/
+*.iml
+
+# Logs
+*.log
+
+# Mac
+.DS_Store
+
+# Misc
