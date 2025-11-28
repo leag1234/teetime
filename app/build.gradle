@@ -3,6 +3,8 @@ plugins {
     id "org.jetbrains.kotlin.android"
 }
 
+def playIntegrityProjectNumber = project.findProperty("playIntegrityProjectNumber") ?: ""
+
 android {
     namespace "org.example.teecheck"
     compileSdk 34
@@ -15,6 +17,8 @@ android {
         versionName "1.0"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+
+        buildConfigField "String", "PLAY_INTEGRITY_PROJECT_NUMBER", "\"${playIntegrityProjectNumber}\""
     }
 
     buildTypes {
@@ -34,6 +38,7 @@ android {
     }
 
     buildFeatures {
+        buildConfig true
         viewBinding true
     }
 }
@@ -46,6 +51,8 @@ dependencies {
     implementation "androidx.activity:activity-ktx:1.9.1"
     implementation "androidx.lifecycle:lifecycle-runtime-ktx:2.8.3"
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1"
+    implementation "com.google.android.play:integrity:1.4.0"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3"
 
     testImplementation "junit:junit:4.13.2"
     androidTestImplementation "androidx.test.ext:junit:1.1.5"

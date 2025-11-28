@@ -52,10 +52,22 @@ data class BootStateSummary(
     val attestationChallengeSha256: String?
 )
 
+data class PlayIntegritySummary(
+    val highestIntegrityLevel: String,
+    val deviceRecognitionVerdicts: List<String>,
+    val appRecognitionVerdict: String?,
+    val appLicensingVerdict: String?,
+    val accountLicensingVerdict: String?,
+    val requestPackageName: String?,
+    val requestTimestampMillis: Long?,
+    val nonceSha256: String
+)
+
 data class DeviceReport(
     val device: DeviceInfo,
     val bootState: BootStateSummary?,
-    val keys: List<KeyReport>
+    val keys: List<KeyReport>,
+    val playIntegrity: PlayIntegritySummary?
 ) {
     fun toJson(pretty: Boolean = true): String {
         val json = JSONObject()
@@ -71,6 +83,10 @@ data class DeviceReport(
 
         bootState?.let { state ->
             json.put("boot_state", state.toJson())
+        }
+
+        playIntegrity?.let { integrity ->
+            json.put("play_integrity", integrity.toJson())
         }
 
         return if (pretty) json.toString(2) else json.toString()
@@ -118,5 +134,18 @@ private fun BootStateSummary.toJson(): JSONObject {
         verifiedBootHash?.let { put("verified_boot_hash", it) }
         bootKeyFingerprint?.let { put("boot_key_fingerprint", it) }
         attestationChallengeSha256?.let { put("attestation_challenge_sha256", it) }
+    }
+}
+
+private fun PlayIntegritySummary.toJson(): JSONObject {
+    return JSONObject().apply {
+        put("highest_integrity_level", highestIntegrityLevel)
+        put("device_recognition_verdicts", JSONArray(deviceRecognitionVerdicts))
+        appRecognitionVerdict?.let { put("app_recognition_verdict", it) }
+        appLicensingVerdict?.let { put("app_licensing_verdict", it) }
+        accountLicensingVerdict?.let { put("account_licensing_verdict", it) }
+        requestPackageName?.let { put("request_package_name", it) }
+        requestTimestampMillis?.let { put("request_timestamp_millis", it) }
+        put("nonce_sha256", nonceSha256)
     }
 }

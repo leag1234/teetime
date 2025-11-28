@@ -25,11 +25,14 @@ import org.example.teecheck.attestation.AttestationParser
 import org.example.teecheck.attestation.BootStateReport
 import org.example.teecheck.attestation.VerifiedBootState
 import org.example.teecheck.databinding.ActivityMainBinding
+import org.example.teecheck.integrity.PlayIntegrityChecker
+import org.example.teecheck.integrity.PlayIntegrityResult
 import org.example.teecheck.report.BootStateSummary
 import org.example.teecheck.report.DeviceInfo
 import org.example.teecheck.report.DeviceReport
 import org.example.teecheck.report.KeyReport
 import org.example.teecheck.report.KeySecurity
+import org.example.teecheck.report.PlayIntegritySummary
 
 private const val LOG_TAG = "TEE_CHECK"
 
@@ -52,7 +55,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun buildReport(): ReportOutput {
+    private suspend fun buildReport(): ReportOutput {
         val warnings = mutableListOf<String>()
         val keyReports = mutableListOf<KeyReport>()
 
@@ -71,6 +74,7 @@ class MainActivity : AppCompatActivity() {
         collectKey("AES-256") { assessAesKey() }
 
         val bootResult = runBootAttestation()
+        val playIntegrityResult = runPlayIntegrityCheck()
 
         val deviceReport = DeviceReport(
             device = DeviceInfo(
@@ -80,11 +84,17 @@ class MainActivity : AppCompatActivity() {
                 sdkInt = Build.VERSION.SDK_INT
             ),
             bootState = bootResult.summary,
-            keys = keyReports
+            keys = keyReports,
+            playIntegrity = playIntegrityResult.summary
         )
 
         val json = deviceReport.toJson()
-        val humanReadable = formatReadableReport(deviceReport, warnings, bootResult.messages)
+        val humanReadable = formatReadableReport(
+            deviceReport,
+            warnings,
+            bootResult.messages,
+            playIntegrityResult.messages
+        )
         val display = buildString {
             append(humanReadable)
             appendLine()
@@ -346,7 +356,8 @@ class MainActivity : AppCompatActivity() {
     private fun formatReadableReport(
         deviceReport: DeviceReport,
         warnings: List<String>,
-        bootMessages: List<String>
+        bootMessages: List<String>,
+        integrityMessages: List<String>
     ): String {
         val sb = StringBuilder()
         sb.appendLine(getString(R.string.report_title))
@@ -455,6 +466,41 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        sb.appendLine()
+        sb.appendLine(getString(R.string.play_integrity_header))
+        val integrity = deviceReport.playIntegrity
+        if (integrity != null) {
+            sb.appendLine(getString(R.string.play_integrity_highest_level, integrity.highestIntegrityLevel))
+            if (integrity.deviceRecognitionVerdicts.isNotEmpty()) {
+                sb.appendLine(
+                    getString(
+                        R.string.play_integrity_device_verdicts,
+                        integrity.deviceRecognitionVerdicts.joinToString(", ")
+                    )
+                )
+            }
+            integrity.appRecognitionVerdict?.let {
+                sb.appendLine(getString(R.string.play_integrity_app_verdict, it))
+            }
+            val licensingVerdict = integrity.accountLicensingVerdict ?: integrity.appLicensingVerdict
+            licensingVerdict?.let {
+                sb.appendLine(getString(R.string.play_integrity_account_verdict, it))
+            }
+            integrity.requestPackageName?.let {
+                sb.appendLine(getString(R.string.play_integrity_request_package, it))
+            }
+            integrity.requestTimestampMillis?.let {
+                sb.appendLine(getString(R.string.play_integrity_request_timestamp, it))
+            }
+            sb.appendLine(getString(R.string.play_integrity_nonce, integrity.nonceSha256))
+        } else {
+            if (integrityMessages.isEmpty()) {
+                sb.appendLine(getString(R.string.play_integrity_no_data))
+            } else {
+                integrityMessages.forEach { sb.appendLine("- $it") }
+            }
+        }
+
         return sb.toString().trimEnd()
     }
 
@@ -508,4 +554,34 @@ class MainActivity : AppCompatActivity() {
         val summary: BootStateSummary?,
         val messages: List<String>
     )
+
+    private data class PlayIntegrityReportResult(
+        val summary: PlayIntegritySummary?,
+        val messages: List<String>
+    )
+
+    private suspend fun runPlayIntegrityCheck(): PlayIntegrityReportResult {
+        val rawNumber = BuildConfig.PLAY_INTEGRITY_PROJECT_NUMBER
+        if (rawNumber.isBlank()) {
+            return PlayIntegrityReportResult(
+                summary = null,
+                messages = listOf(getString(R.string.play_integrity_not_configured))
+            )
+        }
+
+        val projectNumber = rawNumber.toLongOrNull()
+            ?: return PlayIntegrityReportResult(
+                summary = null,
+                messages = listOf(getString(R.string.play_integrity_bad_project_number, rawNumber))
+            )
+
+        val checker = PlayIntegrityChecker(applicationContext)
+        return when (val result = checker.check(projectNumber)) {
+            is PlayIntegrityResult.Success -> PlayIntegrityReportResult(result.summary, emptyList())
+            is PlayIntegrityResult.Failure -> PlayIntegrityReportResult(
+                summary = null,
+                messages = listOf(getString(R.string.play_integrity_error, result.reason))
+            )
+        }
+    }
 }

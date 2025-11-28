@@ -54,4 +54,16 @@
     <string name="key_detail_on_body">Valid while on-body: %1$s</string>
     <string name="key_detail_biometric_invalidation">Invalidated by biometric enrollment: %1$s</string>
     <string name="key_generation_error">%1$s: %2$s</string>
+    <string name="play_integrity_header">Play Integrity verdict</string>
+    <string name="play_integrity_highest_level">Highest integrity level: %1$s</string>
+    <string name="play_integrity_device_verdicts">Device verdicts: %1$s</string>
+    <string name="play_integrity_app_verdict">App recognition verdict: %1$s</string>
+    <string name="play_integrity_account_verdict">Licensing verdict: %1$s</string>
+    <string name="play_integrity_request_package">Request package: %1$s</string>
+    <string name="play_integrity_request_timestamp">Request timestamp (ms): %1$d</string>
+    <string name="play_integrity_nonce">Nonce fingerprint (SHA-256): %1$s</string>
+    <string name="play_integrity_not_configured">Play Integrity skipped: set playIntegrityProjectNumber in gradle.properties.</string>
+    <string name="play_integrity_bad_project_number">Play Integrity skipped: invalid project number "%1$s".</string>
+    <string name="play_integrity_error">Play Integrity failed: %1$s</string>
+    <string name="play_integrity_no_data">Play Integrity data unavailable.</string>
 </resources>
