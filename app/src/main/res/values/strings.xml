@@ -83,4 +83,27 @@
     <string name="section_title_boot">Boot status</string>
     <string name="section_title_integrity">Play Integrity</string>
     <string name="section_title_firebase">Firebase</string>
+    <string name="section_summary_header">Summary</string>
+    <string name="device_summary_line">Device reports %1$s %2$s on Android %3$s (SDK %4$d).</string>
+    <string name="keys_summary_none">No keys could be generated.</string>
+    <string name="keys_summary_all_hardware">All generated keys are hardware-backed (TEE or StrongBox).</string>
+    <string name="keys_summary_no_hardware">Generated keys fell back to software storage.</string>
+    <string name="keys_summary_partial_hardware">Hardware-backed keys available for %1$d of %2$d algorithms.</string>
+    <string name="keys_summary_strongbox_present">StrongBox-backed keys detected.</string>
+    <string name="keys_summary_strongbox_missing">No StrongBox support reported.</string>
+    <string name="keys_summary_warnings">%1$d key generation attempts failed.</string>
+    <string name="boot_summary_locked">Bootloader locked.</string>
+    <string name="boot_summary_unlocked">Bootloader unlocked or attestation indicated deviceUnlocked.</string>
+    <string name="boot_summary_verified">Verified boot: %1$s.</string>
+    <string name="boot_summary_patch">OS patch level %1$s.</string>
+    <string name="boot_summary_vendor_patch">Vendor patch level %1$s.</string>
+    <string name="boot_summary_boot_patch">Boot patch level %1$s.</string>
+    <string name="boot_summary_missing">Boot attestation data unavailable.</string>
+    <string name="integrity_summary_success">Highest integrity level: %1$s.</string>
+    <string name="integrity_summary_device_verdicts">Device verdicts: %1$s.</string>
+    <string name="integrity_summary_app_verdict">App verdict: %1$s.</string>
+    <string name="integrity_summary_licensing_verdict">Licensing verdict: %1$s.</string>
+    <string name="integrity_summary_failure">Integrity request failed: %1$s.</string>
+    <string name="firebase_summary_success">Firebase can initialise on this build.</string>
+    <string name="firebase_summary_failure">Firebase initialisation failed; check Google services availability.</string>
 </resources>
