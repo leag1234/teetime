@@ -11,6 +11,7 @@
         android:id="@+id/instructions"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
         android:text="@string/instructions"
         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
         app:layout_constraintEnd_toEndOf="parent"

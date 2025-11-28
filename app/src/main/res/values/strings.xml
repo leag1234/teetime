@@ -84,10 +84,10 @@
     <string name="section_title_integrity">Play Integrity</string>
     <string name="section_title_firebase">Firebase</string>
     <string name="section_summary_header">Summary</string>
-    <string name="section_summary_none">Pas encore exécuté.</string>
-    <string name="section_details_empty">Aucune donnée technique disponible.</string>
-    <string name="show_details">Afficher les détails</string>
-    <string name="hide_details">Masquer les détails</string>
+    <string name="section_summary_none">Not run yet.</string>
+    <string name="section_details_empty">No technical data available.</string>
+    <string name="show_details">Show details</string>
+    <string name="hide_details">Hide details</string>
     <string name="device_summary_line">Device reports %1$s %2$s on Android %3$s (SDK %4$d).</string>
     <string name="keys_summary_none">No keys could be generated.</string>
     <string name="keys_summary_all_hardware">All generated keys are hardware-backed (TEE or StrongBox).</string>
@@ -108,8 +108,8 @@
     <string name="integrity_summary_app_verdict">App verdict: %1$s.</string>
     <string name="integrity_summary_licensing_verdict">Licensing verdict: %1$s.</string>
     <string name="integrity_summary_failure">Integrity request failed: %1$s.</string>
-    <string name="firebase_summary_success">Firebase can initialise on this build.</string>
-    <string name="firebase_summary_failure">Firebase initialisation failed; check Google services availability.</string>
+    <string name="firebase_summary_success">Firebase can initialize on this build.</string>
+    <string name="firebase_summary_failure">Firebase initialization failed; check Google services availability.</string>
     <string name="summary_placeholder">No diagnostics run yet. Results will appear here.</string>
     <string name="details_toggle_label">Show technical details</string>
 </resources>
