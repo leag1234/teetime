@@ -9,6 +9,19 @@ buildscript {
     }
 }
 
+def localPropsFile = rootProject.file("gradle-local.properties")
+if (localPropsFile.exists()) {
+    def localProps = new Properties()
+    localPropsFile.withInputStream { stream ->
+        localProps.load(stream)
+    }
+    localProps.each { key, value ->
+        if (!project.hasProperty(key)) {
+            project.ext.set(key, value)
+        }
+    }
+}
+
 subprojects {
     afterEvaluate { project ->
         if (project.hasProperty('android')) {

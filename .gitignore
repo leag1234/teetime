@@ -5,6 +5,7 @@ app/build/
 **/build/
 local.properties
 gradle-home/
+gradle-local.properties
 
 # IDE
 .idea/
