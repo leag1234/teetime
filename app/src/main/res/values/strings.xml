@@ -80,7 +80,7 @@
     <string name="section_error">Error: %1$s</string>
     <string name="section_title_device">Device information</string>
     <string name="section_title_keys">TEE / KeyStore</string>
-    <string name="section_title_boot">Boot status</string>
+    <string name="section_title_boot">Bootloader status</string>
     <string name="section_title_integrity">Play Integrity</string>
     <string name="section_title_firebase">Firebase</string>
     <string name="section_summary_header">Summary</string>
@@ -103,6 +103,7 @@
     <string name="boot_summary_vendor_patch">Vendor patch level %1$s.</string>
     <string name="boot_summary_boot_patch">Boot patch level %1$s.</string>
     <string name="boot_summary_missing">Boot attestation data unavailable.</string>
+    <string name="boot_summary_attestation_failed">Attested key could not be generated; bootloader is likely unlocked or attestation is disabled on this ROM.</string>
     <string name="integrity_summary_success">Highest integrity level: %1$s.</string>
     <string name="integrity_summary_device_verdicts">Device verdicts: %1$s.</string>
     <string name="integrity_summary_app_verdict">App verdict: %1$s.</string>

@@ -377,8 +377,13 @@ class MainActivity : AppCompatActivity() {
 
         val summaryLines = mutableListOf<String>()
         if (bootState == null) {
-            val reason = result.messages.firstOrNull() ?: getString(R.string.boot_summary_missing)
-            summaryLines += reason
+            val reason = result.messages.firstOrNull()
+            when {
+                reason?.contains("failed to generate key pair", ignoreCase = true) == true ->
+                    summaryLines += getString(R.string.boot_summary_attestation_failed)
+                reason != null -> summaryLines += reason
+                else -> summaryLines += getString(R.string.boot_summary_missing)
+            }
         } else {
             when (bootState.deviceLocked) {
                 true -> summaryLines += getString(R.string.boot_summary_locked)
